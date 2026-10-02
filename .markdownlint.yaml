@@ -1,0 +1,5 @@
+# Read by the markdownlint step in .github/workflows/fmt.yml.
+# MD013: tables and URLs run past 80 columns; the prose is wrapped by hand.
+# MD014: `$ command` without output is used deliberately in console blocks.
+MD013: false
+MD014: false

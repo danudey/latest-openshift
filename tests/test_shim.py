@@ -40,9 +40,7 @@ def execs(monkeypatch):
 @pytest.fixture
 def wired(fake, monkeypatch):
     """Point the shim's mirror at the synthetic tree, with real archives."""
-    arch_dir = (
-        "x86_64" if current_platform().arch == "amd64" else current_platform().arch
-    )
+    arch_dir = "x86_64" if current_platform().arch == "amd64" else current_platform().arch
     for directory in ("latest-4.22", "latest-4.21", "4.22.13"):
         base = f"{fake_mirror.BASE}/openshift-v4/{arch_dir}/clients/ocp/{directory}"
         version = "4.21.32" if directory == "latest-4.21" else "4.22.13"
@@ -160,9 +158,7 @@ def test_falls_back_to_the_cache_when_the_mirror_is_unreachable(
 ):
     """A tool that already works offline should keep working offline."""
     run_shim(["/bin/oc"], execs)
-    installed = install.find_installed(
-        "oc", Version.parse("4.22.13"), current_platform()
-    )
+    installed = install.find_installed("oc", Version.parse("4.22.13"), current_platform())
     assert installed is not None
 
     broken = fake_mirror.FakeMirror({})

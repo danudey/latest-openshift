@@ -138,9 +138,7 @@ def test_unqualified_linux_name_follows_the_directory_architecture():
 
 def test_unqualified_mac_name_is_amd64_in_every_directory():
     """macOS archives are identical in each directory and always spell out arm64."""
-    artifact = parse_filename(
-        "openshift-client-mac-4.22.13.tar.gz", default_arch="arm64"
-    )
+    artifact = parse_filename("openshift-client-mac-4.22.13.tar.gz", default_arch="arm64")
     assert artifact.platform == Platform("mac", "amd64")
 
 

@@ -98,9 +98,7 @@ def _install_one(
     if destination.is_symlink():
         current = _resolve_symlink(destination)
         if current == shim_path:
-            return LinkResult(
-                name, destination, UNCHANGED, "already points at the shim"
-            )
+            return LinkResult(name, destination, UNCHANGED, "already points at the shim")
         if not force:
             return LinkResult(
                 name,

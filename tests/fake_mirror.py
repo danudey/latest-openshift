@@ -14,8 +14,7 @@ BASE = "https://mirror.openshift.com/pub"
 def index_page(entries: list[str]) -> str:
     """An Apache autoindex page listing ``entries``."""
     rows = "\n".join(
-        f'<tr><td><a href="{entry}">{entry}</a></td><td>-</td></tr>'
-        for entry in entries
+        f'<tr><td><a href="{entry}">{entry}</a></td><td>-</td></tr>' for entry in entries
     )
     return (
         "<html><head><title>Index</title></head><body><h1>Index</h1><table>"
@@ -108,15 +107,11 @@ def build_pages() -> dict[str, str]:
 
             for stream, version in STREAMS.items():
                 for name in (f"latest-{stream}", f"stable-{stream}"):
-                    pages[f"{root}/ocp/{name}/"] = index_page(
-                        _release_dir_files(version)
-                    )
+                    pages[f"{root}/ocp/{name}/"] = index_page(_release_dir_files(version))
                     pages[f"{root}/ocp/{name}/release.txt"] = release_txt(version)
 
             for version in ("4.22.13", "4.22.99"):
-                pages[f"{root}/ocp/{version}/"] = index_page(
-                    _release_dir_files(version)
-                )
+                pages[f"{root}/ocp/{version}/"] = index_page(_release_dir_files(version))
                 pages[f"{root}/ocp/{version}/release.txt"] = release_txt(version)
 
             preview = f"{root}/ocp-dev-preview/5.0.0-ec.1"

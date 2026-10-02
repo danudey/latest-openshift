@@ -60,9 +60,7 @@ class Config:
                 raise ConfigError(f"{target}: pull_secret must be a string")
             pull_secret = Path(value).expanduser()
 
-        return cls(
-            default_version=default_version, pull_secret=pull_secret, path=target
-        )
+        return cls(default_version=default_version, pull_secret=pull_secret, path=target)
 
     def save(self, path: Path | None = None) -> Path:
         target = path or self.path or paths.config_file()

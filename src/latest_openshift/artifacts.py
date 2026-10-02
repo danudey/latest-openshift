@@ -157,9 +157,7 @@ def parse_listing(
     """Parse every archive in a directory listing, skipping anything else."""
     artifacts = []
     for name in filenames:
-        artifact = parse_filename(
-            name, default_arch=default_arch, default_os=default_os
-        )
+        artifact = parse_filename(name, default_arch=default_arch, default_os=default_os)
         if artifact is not None:
             artifacts.append(artifact)
     return artifacts
@@ -180,8 +178,7 @@ def available_tools(
     names = {
         artifact.tool
         for artifact in artifacts
-        if not artifact.is_source
-        and (platform is None or artifact.platform == platform)
+        if not artifact.is_source and (platform is None or artifact.platform == platform)
     }
     return sorted(names)
 

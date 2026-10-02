@@ -1,0 +1,101 @@
+version: 2
+
+# A repository has exactly one .github/dependabot.yml, so this file is the
+# whole thing: the github-actions entry plus the Python one. Add further
+# entries for any other ecosystem in the repository rather than adding
+# another file.
+#
+# WHICH PYTHON ECOSYSTEM TO USE
+#   Dependabot has one Python ecosystem, `pip`, and it reads whichever of
+#   these it finds: pyproject.toml (with or without a uv.lock or poetry.lock),
+#   requirements*.txt, Pipfile, and setup.py. The name is historical; it does
+#   not mean you have to use pip.
+#
+#   uv and Poetry lock files are both updated in place, so a bump arrives as a
+#   change to pyproject.toml and the lock together, which is what you want.
+
+updates:
+  # The actions in .github/workflows. They are pinned to commit SHAs, which
+  # nothing updates on its own and which no human will notice has gone stale.
+  # Dependabot rewrites both the SHA and the version comment beside it.
+  - package-ecosystem: github-actions
+    # For this ecosystem "/" means .github/workflows, not the repository root.
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    # Waits a week after a release before proposing it, so a compromised or
+    # yanked version is usually caught upstream first.
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: ci
+      include: scope
+    groups:
+      actions:
+        patterns:
+          - "*"
+    labels:
+      - dependencies
+      - ci
+
+  # The Python project. `directory` is where pyproject.toml lives.
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Etc/UTC
+    # Waits a week after a release before proposing it, so a compromised or
+    # yanked version is usually caught upstream first.
+    cooldown:
+      default-days: 7
+    # "build" rather than "fix": a routine dependency bump should not by
+    # itself cut a release, and release-please keeps `build` out of the
+    # changelog. Change it to "fix" if you would rather every bump reach
+    # consumers as a patch release.
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      # Development tooling separately from what the package actually
+      # depends on. A pytest or mypy bump cannot affect a user; a runtime
+      # dependency bump can, and mixing the two means neither gets the
+      # attention it deserves.
+      python-runtime:
+        dependency-type: production
+        patterns:
+          - "*"
+      python-dev:
+        dependency-type: development
+        patterns:
+          - "*"
+    labels:
+      - dependencies
+      - python
+    open-pull-requests-limit: 10
+    # Dependabot will not touch `requires-python`, and it should not:
+    # dropping a Python version is a decision about who you support.
+    #
+    # To hold a dependency back, uncomment and name it:
+    # ignore:
+    #   - dependency-name: "numpy"
+    #     update-types: ["version-update:semver-major"]
+
+  # If the project also has a requirements file for something separate — docs
+  # builds, a dev container, a lambda — Dependabot needs to be told where.
+  # It does not walk the tree looking for them.
+  #
+  # - package-ecosystem: pip
+  #   directory: /docs
+  #   schedule:
+  #     interval: monthly
+  #   commit-message:
+  #     prefix: docs
+  #     include: scope
+  #   labels:
+  #     - dependencies
+  #     - docs

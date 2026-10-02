@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import types
+
 import pytest
 
 import fake_mirror
-from latest_openshift import paths
+from latest_openshift import paths, platforms
 from latest_openshift.mirror import Mirror
 
 
@@ -16,7 +18,25 @@ def isolated_dirs(tmp_path, monkeypatch):
     monkeypatch.delenv("OCP_VERSION", raising=False)
     monkeypatch.delenv("OC_VERSION", raising=False)
     monkeypatch.delenv("REGISTRY_AUTH_FILE", raising=False)
+    # GitHub Actions sets CI=true, which switches the UI to plain output.
+    monkeypatch.delenv("CI", raising=False)
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def linux_amd64_host(monkeypatch):
+    """Run every test as if on a glibc linux/amd64 machine.
+
+    The synthetic mirror and the expectations written against it describe
+    that platform, so without this the suite fails on macOS and arm64.
+    Tests about detection itself still patch ``glibc_version`` over this.
+    """
+    monkeypatch.setattr(
+        platforms,
+        "_platform",
+        types.SimpleNamespace(system=lambda: "Linux", machine=lambda: "x86_64"),
+    )
+    monkeypatch.setattr(platforms, "glibc_version", lambda: (2, 34))
 
 
 @pytest.fixture

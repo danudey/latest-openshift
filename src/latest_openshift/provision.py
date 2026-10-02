@@ -128,9 +128,7 @@ class Provisioner:
         """Names of the tools a release publishes, optionally for one platform."""
         return available_tools(self.artifacts(release, platform), platform)
 
-    def locate(
-        self, release: Release, tool: str, platform: Platform
-    ) -> ResolvedArtifact:
+    def locate(self, release: Release, tool: str, platform: Platform) -> ResolvedArtifact:
         """Find the archive of ``tool`` for ``platform`` in ``release``."""
         directory_url = self.directory_url(release, platform)
         if directory_url is None:

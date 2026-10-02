@@ -68,9 +68,7 @@ def test_install_archive_extracts_binaries_and_skips_docs(tmp_path):
         assert item.path.is_file()
         assert os.access(item.path, os.X_OK)
         assert item.path.read_bytes() == b"#!/bin/true\n"
-    assert not (
-        paths.platform_bin_dir("linux", "amd64") / "README.md-v4.22.13"
-    ).exists()
+    assert not (paths.platform_bin_dir("linux", "amd64") / "README.md-v4.22.13").exists()
 
 
 def test_install_archive_renames_libc_qualified_member(tmp_path):

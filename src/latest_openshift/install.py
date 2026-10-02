@@ -151,9 +151,7 @@ def list_installed() -> list[InstalledBinary]:
                 continue
             name, version = parsed
             found.append(
-                InstalledBinary(
-                    name=name, version=version, platform=platform, path=entry
-                )
+                InstalledBinary(name=name, version=version, platform=platform, path=entry)
             )
     return sorted(found, key=lambda item: (item.name, item.version, str(item.platform)))
 
@@ -218,9 +216,7 @@ class _TarReader(_MemberReader):
     def copy_to(self, handle) -> None:
         source = self._tf.extractfile(self._member)
         if source is None:
-            raise OpenShiftToolsError(
-                f"could not read {self._member.name} from archive"
-            )
+            raise OpenShiftToolsError(f"could not read {self._member.name} from archive")
         with source:
             shutil.copyfileobj(source, handle)
 
