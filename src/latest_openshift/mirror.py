@@ -191,9 +191,7 @@ class Mirror:
         self._write_cache(cache_key, {"name": name})
         return Version.try_parse(name) if name else None
 
-    def list_release_streams(
-        self, major: int, *, refresh: bool = False
-    ) -> list[Version]:
+    def list_release_streams(self, major: int, *, refresh: bool = False) -> list[Version]:
         """Every ``major.minor`` stream with a ``latest-*`` pointer directory.
 
         A stream only gets a ``latest-X.Y`` directory once it has an actual

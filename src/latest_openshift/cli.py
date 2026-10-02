@@ -101,9 +101,7 @@ platform_option = click.option(
     metavar="SECONDS",
     help="How long to reuse cached mirror listings. 0 disables the cache.",
 )
-@click.option(
-    "--quiet", "-q", is_flag=True, help="Suppress progress and status output."
-)
+@click.option("--quiet", "-q", is_flag=True, help="Suppress progress and status output.")
 @click.version_option(package_name="latest-openshift", prog_name="latest-openshift")
 @click.pass_context
 def main(ctx: click.Context, refresh: bool, cache_ttl: int, quiet: bool) -> None:
@@ -227,9 +225,7 @@ def tools_command(
 @click.argument("tools", nargs=-1, required=True, metavar="TOOL...")
 @version_option
 @platform_option
-@click.option(
-    "--url", "print_url", is_flag=True, help="Print the download URL and exit."
-)
+@click.option("--url", "print_url", is_flag=True, help="Print the download URL and exit.")
 @click.option(
     "--install",
     "do_install",
@@ -249,9 +245,7 @@ def tools_command(
     help="Directory to save archives in. Defaults to the current directory, or "
     "the archive cache when --install is given.",
 )
-@click.option(
-    "--force", is_flag=True, help="Re-download and re-extract even if cached."
-)
+@click.option("--force", is_flag=True, help="Re-download and re-extract even if cached.")
 @click.pass_obj
 def download_command(
     app: AppContext,
@@ -299,9 +293,7 @@ def download_command(
 
         if do_install:
             for tool in tools:
-                installed = provisioner.install_tool(
-                    release, tool, platform, force=force
-                )
+                installed = provisioner.install_tool(release, tool, platform, force=force)
                 for binary in installed:
                     if print_location:
                         app.ui.value(str(binary.path))
