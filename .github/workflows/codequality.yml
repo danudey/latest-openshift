@@ -1,0 +1,131 @@
+name: codequality
+
+# Static analysis, reported as code scanning alerts rather than as a wall of
+# text in a log.
+#
+# Ruff is the whole of it. It reimplements Flake8, isort, pyupgrade, pydocstyle
+# and — importantly here — Bandit's security rules as the `S` ruleset, in one
+# pass, in about a second. Running Bandit separately alongside it duplicates
+# the findings, so this workflow enables `S` in ruff instead. If the project
+# genuinely needs Bandit's own configuration format there is a commented job
+# at the bottom of this file.
+#
+# Ruff's SARIF output goes to the Code scanning tab, so each finding becomes an
+# alert with a location, a rule, and a history: it appears when introduced,
+# closes when fixed, and can be dismissed with a reason. That is the difference
+# between a linter people act on and one people mute.
+#
+# WHAT TO CHANGE
+#   1. `WORKING_DIRECTORY`, if pyproject.toml is not at the repository root.
+#   2. The `[tool.ruff]` table in pyproject.toml. This is the important one:
+#      without it you get ruff's small default rule set. A starting point that
+#      is strict but not unreasonable is in the README beside this file.
+#   3. `RUFF_VERSION`. Pinned rather than floating, because a ruff release
+#      adds rules and would otherwise turn a green main branch red with no
+#      commit behind it.
+#
+# WHAT IT NEEDS
+#   - A public repository, or GitHub Advanced Security on a private one, for
+#     the SARIF upload.
+#   - A `[tool.ruff]` configuration for this to be worth much.
+#
+# WHAT IT PRODUCES
+#   - Alerts under Security -> Code scanning, categorised as `ruff`.
+#   - A failing job when a finding exists, so it blocks the pull request
+#     rather than only being recorded.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    # New rules land in ruff without this repository changing.
+    - cron: "31 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: codequality-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  WORKING_DIRECTORY: "."
+  # Watch https://github.com/astral-sh/ruff/releases and raise this
+  # deliberately, so new rules arrive in a commit of their own.
+  RUFF_VERSION: "0.16.7"
+
+jobs:
+  ruff:
+    name: ruff
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Writing the SARIF results as code scanning alerts.
+      security-events: write
+      # Alert deduplication reads the run metadata.
+      actions: read
+    defaults:
+      run:
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
+
+      # Two invocations of the same run rather than two runs: the first writes
+      # machine-readable output for the upload, the second writes the log a
+      # human reads. `--no-cache` is not needed; ruff is fast enough that the
+      # second pass is free.
+      - name: Run ruff
+        id: lint
+        # The upload below has to happen even when the lint fails, otherwise
+        # the findings that caused the failure never reach the security tab.
+        # The job is still failed, by the explicit check at the end.
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          uvx "ruff@${RUFF_VERSION}" check \
+            --output-format=sarif --output-file=ruff.sarif .
+          uvx "ruff@${RUFF_VERSION}" check --output-format=github .
+
+      - name: Upload to code scanning
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+        with:
+          sarif_file: ${{ env.WORKING_DIRECTORY }}/ruff.sarif
+          category: ruff
+          wait-for-processing: true
+
+      - name: Fail if ruff found anything
+        if: steps.lint.outcome == 'failure'
+        run: |
+          echo "ruff reported findings; see the Code scanning tab." >&2
+          exit 1
+
+  # Bandit, only if the project needs its own configuration rather than ruff's
+  # `S` rules. Uncomment the whole job and add `"S"` to ruff's ignore list so
+  # the two do not both report the same finding.
+  #
+  # bandit:
+  #   name: bandit
+  #   runs-on: ubuntu-latest
+  #   permissions:
+  #     contents: read
+  #     security-events: write
+  #     actions: read
+  #   steps:
+  #     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+  #     - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+  #     - name: Run bandit
+  #       continue-on-error: true
+  #       run: |
+  #         uvx "bandit[sarif]" -r src -f sarif -o bandit.sarif
+  #     - uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+  #       with:
+  #         sarif_file: bandit.sarif
+  #         category: bandit

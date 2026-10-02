@@ -1,0 +1,153 @@
+name: audit
+
+# Asks whether anything the project already depends on is known to be
+# vulnerable today. Advisories are published without this repository changing,
+# so this runs on a schedule as well as on pull requests; GitHub emails the
+# repository owner when a scheduled workflow fails on the default branch.
+#
+# There is no `uv audit`. uv resolves and installs; it does not carry a
+# vulnerability database. The two tools that do:
+#
+#   pip-audit    the PyPA one. Reads the resolved environment or the lock
+#                file, matches it against the Python Packaging Advisory
+#                Database, and knows which version fixes each finding. This
+#                is the one that gates.
+#
+#   osv-scanner  reads uv.lock, poetry.lock and requirements.txt directly
+#                against OSV, which covers advisories with no PyPA entry.
+#                Noisier, so it reports to the security tab rather than
+#                failing the build.
+#
+# WHAT TO CHANGE
+#   1. `PACKAGE_MANAGER`: uv, poetry or pip.
+#   2. `WORKING_DIRECTORY`, if pyproject.toml is not at the repository root.
+#   3. `IGNORE_VULNS`: advisory IDs that are known and unfixable here. Put the
+#      reason in a comment beside each one, because the next person to read
+#      the list will not remember. An unexplained ignore entry outlives the
+#      problem it was added for.
+#   4. The cron. Weekly is a reasonable default; daily if the project is
+#      something people deploy.
+#
+# WHAT IT NEEDS
+#   - Nothing for pip-audit. No secrets.
+#   - A public repository, or GitHub Advanced Security, for the SARIF upload.
+#
+# WHAT IT PRODUCES
+#   - A failing check when a vulnerable dependency has a fix available.
+#   - Alerts under Security -> Code scanning for everything OSV knows about.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # Monday morning, off the top of the hour, which GitHub asks for.
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: audit-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # uv | poetry | pip
+  PACKAGE_MANAGER: "uv"
+  WORKING_DIRECTORY: "."
+  POETRY_VERSION: "2.2.1"
+  # Space-separated advisory IDs, e.g. "GHSA-xxxx-yyyy-zzzz PYSEC-2024-1".
+  # Document each one.
+  IGNORE_VULNS: ""
+
+jobs:
+  pip-audit:
+    name: pip-audit
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
+
+      # pip-audit needs a resolved dependency set, not a range. Each manager
+      # is asked to produce a requirements.txt of exactly what it would
+      # install, and pip-audit reads that. Auditing the lock file rather than
+      # an installed environment also means no project code is executed.
+      - name: Freeze the resolved dependencies
+        run: |
+          set -euo pipefail
+          case "$PACKAGE_MANAGER" in
+            uv)
+              # --no-emit-project excludes the project itself, which has no
+              # advisories and would only produce a warning about not being
+              # on PyPI. --all-extras so optional dependencies are covered.
+              uv export --frozen --no-emit-project --all-extras \
+                --format requirements-txt --output-file audit-requirements.txt
+              ;;
+            poetry)
+              pipx install "poetry==${POETRY_VERSION}"
+              poetry self add poetry-plugin-export
+              poetry export --format requirements.txt --all-extras \
+                --without-hashes --output audit-requirements.txt
+              ;;
+            pip)
+              # No lock file, so the best available answer is what a fresh
+              # resolve produces today. Weaker, and a reason to adopt a lock.
+              python -m pip install --upgrade pip
+              python -m pip install --dry-run --report - . \
+                | python -c 'import json,sys; d=json.load(sys.stdin); [print(i["metadata"]["name"]+"=="+i["metadata"]["version"]) for i in d["install"]]' \
+                > audit-requirements.txt
+              ;;
+          esac
+          wc -l audit-requirements.txt
+
+      - name: Run pip-audit
+        run: |
+          set -euo pipefail
+          args=(--requirement audit-requirements.txt --strict --progress-spinner off)
+          for id in ${IGNORE_VULNS}; do
+            args+=(--ignore-vuln "$id")
+          done
+          uvx pip-audit "${args[@]}"
+
+  osv-scanner:
+    name: osv-scanner
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Finds uv.lock, poetry.lock, requirements.txt and Pipfile.lock on its
+      # own, so it needs no PACKAGE_MANAGER branch.
+      - name: Scan the lock files
+        uses: google/osv-scanner-action/osv-scanner-action@6e4298ebc4db23e847df9b2e2de2939d6f066c67 # v2.5.1
+        # Exits non-zero on any finding, and finding something is the normal
+        # state of a dependency tree of any size. The upload below is the
+        # deliverable; use the alerts to decide what is worth acting on.
+        continue-on-error: true
+        with:
+          scan-args: |-
+            --recursive
+            --format=sarif
+            --output=osv-scanner.sarif
+            ./
+
+      - name: Upload to code scanning
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4.38.0
+        with:
+          sarif_file: osv-scanner.sarif
+          category: osv-scanner

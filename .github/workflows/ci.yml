@@ -1,0 +1,209 @@
+name: CI
+
+# Builds and tests on every operating system and Python version the project
+# claims to support.
+#
+# All five Python workflows in this directory share one knob, PACKAGE_MANAGER,
+# and work with uv, Poetry or plain pip. Set it once per workflow and the
+# install and run commands follow. The pattern is a `case` over the manager
+# that writes a `$RUN` prefix into the environment; every later step uses
+# `$RUN pytest` rather than hard-coding `uv run` or `poetry run`.
+#
+# WHAT TO CHANGE
+#   1. `PACKAGE_MANAGER`: uv, poetry or pip.
+#        uv      needs a uv.lock and a [project] table in pyproject.toml.
+#        poetry  needs a poetry.lock and a [tool.poetry] table.
+#        pip     needs pyproject.toml (or setup.py) with a `dev` extra, or
+#                a requirements-dev.txt; see PIP_INSTALL below.
+#   2. `WORKING_DIRECTORY`, if pyproject.toml is not at the repository root.
+#   3. The `python` matrix. Every version the project supports, which should
+#      match `requires-python` in pyproject.toml. Nothing checks that
+#      agreement for you, and a version listed there but not tested here is
+#      the usual source of "it does not work on 3.9".
+#   4. `TEST_COMMAND` and `TYPECHECK_COMMAND`, if the project does not use
+#      pytest and mypy.
+#
+# WHAT IT NEEDS
+#   - A committed lock file (uv.lock or poetry.lock) for the run to be
+#     reproducible. With pip and no lock file the job tests whatever resolved
+#     this morning, which is a different and much weaker check.
+#   - Nothing else. No secrets.
+#
+# WHAT IT PRODUCES
+#   - One status check per operating system and Python version.
+#   - A built sdist and wheel artifact from the build job.
+#
+# A NOTE ON ARCHITECTURES
+#   For pure-Python code the operating system matrix below is the whole story.
+#   If the project ships a compiled extension module, the architecture matrix
+#   that matters is the wheel matrix, and that lives in release.yml under
+#   cibuildwheel.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # uv | poetry | pip
+  PACKAGE_MANAGER: "uv"
+  WORKING_DIRECTORY: "."
+  # Only used when PACKAGE_MANAGER is pip. Either an extra, as here, or
+  # "-r requirements-dev.txt".
+  PIP_INSTALL: '-e .[dev]'
+  POETRY_VERSION: "2.2.1"
+  # No pytest-cov or mypy in the dev group yet. Add them to pyproject.toml,
+  # then restore `--cov --cov-report=xml` here and the type-check and
+  # coverage steps below.
+  TEST_COMMAND: "pytest -v"
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, py${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        # bash on Windows too, so one `case` statement covers every runner.
+        shell: bash
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - ubuntu-latest
+          - ubuntu-24.04-arm
+          - macos-latest
+          # No windows-latest: the shim execs through symlinks, which Windows
+          # only creates with Developer Mode or admin rights.
+        python: ["3.11", "3.12", "3.13"]
+        # The oldest and newest supported versions are where the interesting
+        # failures are, so the full matrix only runs on Linux and the other
+        # platforms take the newest. Delete this to test everything
+        # everywhere; it is roughly four times the runner minutes.
+        exclude:
+          - { os: macos-latest, python: "3.11" }
+          - { os: macos-latest, python: "3.12" }
+          - { os: ubuntu-24.04-arm, python: "3.11" }
+          - { os: ubuntu-24.04-arm, python: "3.12" }
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # uv manages its own interpreters, so it does not need setup-python.
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        if: env.PACKAGE_MANAGER == 'uv'
+        with:
+          enable-cache: true
+          cache-dependency-glob: "${{ env.WORKING_DIRECTORY }}/uv.lock"
+          python-version: ${{ matrix.python }}
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        if: env.PACKAGE_MANAGER != 'uv'
+        with:
+          python-version: ${{ matrix.python }}
+          # The action caches the wheel download directory keyed off the lock
+          # file. It is the difference between a 40-second install and a
+          # 5-second one on a large dependency set.
+          cache: ${{ env.PACKAGE_MANAGER == 'poetry' && 'poetry' || 'pip' }}
+
+      - name: Install Poetry
+        if: env.PACKAGE_MANAGER == 'poetry'
+        run: pipx install "poetry==${POETRY_VERSION}"
+
+      # One place that knows how each manager installs a project and how it
+      # runs a command inside the resulting environment. $RUN is exported to
+      # every later step through $GITHUB_ENV.
+      - name: Install the project
+        run: |
+          set -euo pipefail
+          case "$PACKAGE_MANAGER" in
+            uv)
+              # --frozen means "use the lock file exactly, and fail if it is
+              # out of date with pyproject.toml" rather than quietly
+              # re-resolving. That is what makes this run reproducible.
+              uv sync --frozen --all-extras --dev
+              echo "RUN=uv run --frozen" >> "$GITHUB_ENV"
+              ;;
+            poetry)
+              poetry env use "${{ matrix.python }}"
+              poetry check --lock
+              poetry install --with dev --all-extras --no-interaction
+              echo "RUN=poetry run" >> "$GITHUB_ENV"
+              ;;
+            pip)
+              python -m pip install --upgrade pip
+              # shellcheck disable=SC2086
+              python -m pip install ${PIP_INSTALL}
+              echo "RUN=" >> "$GITHUB_ENV"
+              ;;
+            *)
+              echo "::error::PACKAGE_MANAGER must be uv, poetry or pip" >&2
+              exit 1
+              ;;
+          esac
+
+      # Proves the package actually imports from an installed location rather
+      # than only from the source tree. Catches a missing package in the
+      # wheel, and a module that only resolves because the working directory
+      # happens to be on sys.path.
+      - name: Import check
+        run: $RUN python -c "import sys; print(sys.version)"
+
+      - name: Test
+        run: $RUN ${{ env.TEST_COMMAND }}
+
+  # Builds the distribution and runs the packaging checks that only fail once
+  # somebody tries to install from PyPI: a README that PyPI will not render,
+  # a wheel missing a subpackage, metadata that pip cannot read.
+  #
+  # Worth having on every pull request rather than only at release time,
+  # because these break quietly and the release is a bad moment to find out.
+  build:
+    name: build the distribution
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # setuptools-scm and hatch-vcs derive the version from the git
+          # history, so a shallow clone gives them 0.1.dev1 and the built
+          # artifact is mislabelled.
+          fetch-depth: 0
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
+
+      # `uv build` drives whichever build backend pyproject.toml declares, so
+      # this works for a Poetry or a setuptools project too. It is used here
+      # regardless of PACKAGE_MANAGER for that reason.
+      - name: Build the sdist and wheel
+        run: uv build --sdist --wheel --out-dir dist
+
+      - name: Check the metadata
+        run: |
+          set -euo pipefail
+          uvx twine check --strict dist/*
+          # The wheel should contain the package. A wheel that unzips to
+          # nothing but a .dist-info directory installs cleanly and then
+          # fails on import, which is the worst way to find out.
+          python -m zipfile -l dist/*.whl
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: dist
+          path: ${{ env.WORKING_DIRECTORY }}/dist/
+          retention-days: 7

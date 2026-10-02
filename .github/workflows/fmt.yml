@@ -1,0 +1,128 @@
+name: fmt
+
+# Catches formatting and lock-file drift, both of which have a mechanical fix
+# and neither of which needs a review conversation. Kept separate from
+# codequality.yml because a lint finding needs a decision and a formatting
+# finding needs one command.
+#
+# Checks rather than reformats. A workflow that pushes formatting commits back
+# to the branch fights the developer's editor and cannot work on a fork.
+#
+# WHAT TO CHANGE
+#   1. `PACKAGE_MANAGER`: uv, poetry or pip. Only the lock-file check cares.
+#   2. `WORKING_DIRECTORY`, if pyproject.toml is not at the repository root.
+#   3. `RUFF_VERSION`. Keep it identical to the one in codequality.yml.
+#      Two ruff versions in one repository means the format check and the
+#      lint can disagree about the same file.
+#   4. Delete the `docs` step if the project has no Markdown worth linting.
+#
+# WHAT IT NEEDS
+#   - Nothing. No secrets.
+#
+# WHAT IT PRODUCES
+#   - One status check. Its log prints the diff that would fix each file and
+#     names the command to run.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fmt-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # uv | poetry | pip
+  PACKAGE_MANAGER: "uv"
+  WORKING_DIRECTORY: "."
+  RUFF_VERSION: "0.16.7"
+  POETRY_VERSION: "2.2.1"
+
+jobs:
+  fmt:
+    name: fmt
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ env.WORKING_DIRECTORY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          enable-cache: true
+
+      # `ruff format` is a Black-compatible formatter. `--diff` prints what it
+      # would change and exits non-zero if there is anything, which is exactly
+      # the check wanted here. `--check` alone only lists the filenames.
+      - name: ruff format
+        run: |
+          set -euo pipefail
+          if ! uvx "ruff@${RUFF_VERSION}" format --diff .; then
+            echo "::error::Formatting is not clean. Run: ruff format ."
+            exit 1
+          fi
+
+      # Import order is a formatting matter, not a lint one, but ruff exposes
+      # it as the `I` rule set. Checking it here means an import-only failure
+      # reads as "run this command" rather than arriving as a code scanning
+      # alert somebody has to triage.
+      - name: import order
+        run: |
+          set -euo pipefail
+          if ! uvx "ruff@${RUFF_VERSION}" check --select I --output-format=github .; then
+            echo "::error::Imports are not sorted. Run: ruff check --select I --fix ."
+            exit 1
+          fi
+
+      # A lock file that no longer matches pyproject.toml is the same class of
+      # problem as an untidy go.mod: it produces a diff on somebody else's
+      # unrelated pull request. Checking it here keeps the blame local.
+      - name: lock file is current
+        run: |
+          set -euo pipefail
+          case "$PACKAGE_MANAGER" in
+            uv)
+              # --check fails rather than rewriting, and covers both "the lock
+              # file is missing a new dependency" and "it pins something
+              # pyproject.toml no longer allows".
+              if ! uv lock --check; then
+                echo "::error::uv.lock is out of date. Run: uv lock"
+                exit 1
+              fi
+              ;;
+            poetry)
+              pipx install "poetry==${POETRY_VERSION}"
+              if ! poetry check --lock; then
+                echo "::error::poetry.lock is out of date. Run: poetry lock"
+                exit 1
+              fi
+              ;;
+            pip)
+              echo "pip has no lock file to check; skipping."
+              echo "Consider pip-tools or uv if reproducible installs matter."
+              ;;
+          esac
+
+      # pyproject.toml itself. `validate-pyproject` catches a table name that
+      # no build backend reads — a typo in [tool.ruff.lint] that silently
+      # disables half your rules, for instance.
+      - name: pyproject.toml is valid
+        run: uvx validate-pyproject pyproject.toml
+
+      # Delete this step if the project has no Markdown worth checking. It is
+      # here because a README that will not render is a release-day surprise.
+      - name: docs
+        uses: DavidAnson/markdownlint-cli2-action@21c1be1b93ad9ed58fa840aacc3f279cde2a72ff # v24.2.0
+        with:
+          globs: |
+            **/*.md
+            !.github/**
