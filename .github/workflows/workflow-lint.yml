@@ -74,7 +74,7 @@ jobs:
           persist-credentials: false
 
       - name: Lint the workflow files
-        uses: reviewdog/action-actionlint@419a49378266e892f40c773b4f2fc6de9aa87499 # v1.80.4
+        uses: reviewdog/action-actionlint@ae857e78c1b42b3d0a49637181b09d3d56d402b4 # v1.84.1
         with:
           # Annotate the diff on a pull request; fall back to a plain check
           # run elsewhere, because there is no diff to annotate on a push.
@@ -100,7 +100,7 @@ jobs:
           persist-credentials: false
 
       - name: Audit the workflows
-        uses: zizmorcore/zizmor-action@85b2b9fb8e3325e7a23d7d0a9d7ba5ae0f999e3e # v0.7.1
+        uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
         with:
           # Workflows, composite actions, and dependabot.yml. The default
           # collection mode skips some of those.
